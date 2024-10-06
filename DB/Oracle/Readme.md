@@ -80,3 +80,37 @@ COMMIT;
 
 
 ```
+
+
+
+
+
+## QRY to get the oracle version:
+
+```sql
+SELECT * FROM v$version;
+```
+
+This will return information about your Oracle version, including the Oracle Database version and any patches applied.
+
+Alternatively, if you're specifically looking for the Oracle database version:
+
+```sql
+SELECT banner FROM v$version WHERE banner LIKE 'Oracle%';
+```
+
+This will give you the version details in a more concise manner.
+
+Result :
+
+![image](https://github.com/user-attachments/assets/35f7ab39-c1d2-4ad0-b9a2-88aeb9e7076d)
+
+
+
+
+
+
+
+
+
+

@@ -168,6 +168,121 @@ JOIN departments d ON e.department_id = d.department_id;
 
 ---
 
+over the other concepts one by one using the **employees**, **departments**, and **salaries** tables we provided earlier.
+
+### 1. **WHERE Clause**
+The `WHERE` clause is used to filter records based on a condition. This can be used for any column in a table.
+
+#### Example:
+**Scenario**: Fetch employees whose department ID is 1.
+```sql
+SELECT emp_id, first_name, last_name
+FROM employees
+WHERE department_id = 1;
+```
+
+### 2. **BETWEEN**
+The `BETWEEN` operator is used to filter rows based on a range of values (inclusive).
+
+#### Example:
+**Scenario**: Find employees hired between '2020-01-01' and '2023-01-01'.
+```sql
+SELECT emp_id, first_name, hire_date
+FROM employees
+WHERE hire_date BETWEEN '2020-01-01' AND '2023-01-01';
+```
+
+### 3. **HAVING Clause**
+`HAVING` is like `WHERE`, but it is used for filtering aggregated results (i.e., results after `GROUP BY`).
+
+#### Example:
+**Scenario**: List departments where the average salary is greater than 50,000.
+```sql
+SELECT department_id, AVG(salary_amount) as avg_salary
+FROM salaries
+GROUP BY department_id
+HAVING AVG(salary_amount) > 50000;
+```
+
+### 4. **Subqueries (Inner Queries)**
+A subquery is a query inside another query. It helps retrieve data to be used by the outer query.
+
+#### Example:
+**Scenario**: Find employees who are in the same department as the employee with `emp_id = 1`.
+```sql
+SELECT emp_id, first_name, department_id
+FROM employees
+WHERE department_id = (SELECT department_id FROM employees WHERE emp_id = 1);
+```
+
+### 5. **UNION vs UNION ALL**
+- `UNION` removes duplicates from the result set.
+- `UNION ALL` returns all records, including duplicates.
+
+#### Example:
+**Scenario**: Combine two queries to get employee names from two departments.
+```sql
+SELECT first_name, last_name FROM employees WHERE department_id = 1
+UNION
+SELECT first_name, last_name FROM employees WHERE department_id = 2;
+```
+
+### 6. **DISTINCT**
+`DISTINCT` is used to remove duplicate rows from the result set.
+
+#### Example:
+**Scenario**: Get a list of unique department IDs from the employees table.
+```sql
+SELECT DISTINCT department_id
+FROM employees;
+```
+
+### 7. **EXISTS**
+The `EXISTS` operator checks if a subquery returns any rows.
+
+#### Example:
+**Scenario**: Find employees who have a salary record.
+```sql
+SELECT emp_id, first_name
+FROM employees e
+WHERE EXISTS (SELECT 1 FROM salaries s WHERE s.emp_id = e.emp_id);
+```
+
+### 8. **ORDER BY**
+`ORDER BY` sorts the result set based on one or more columns.
+
+#### Example:
+**Scenario**: Get all employees sorted by `hire_date`.
+```sql
+SELECT emp_id, first_name, hire_date
+FROM employees
+ORDER BY hire_date DESC;
+```
+
+### 9. **LIMIT/OFFSET (PostgreSQL) / ROWNUM (Oracle)**
+- **PostgreSQL** uses `LIMIT` and `OFFSET` to paginate data.
+- **Oracle** uses `ROWNUM` to limit the number of rows returned.
+
+#### Example (PostgreSQL):
+**Scenario**: Get the first 5 employees.
+```sql
+SELECT emp_id, first_name, last_name
+FROM employees
+LIMIT 5;
+```
+
+#### Example (Oracle):
+**Scenario**: Get the first 5 employees.
+```sql
+SELECT emp_id, first_name, last_name
+FROM employees
+WHERE ROWNUM <= 5;
+```
+
+---
+
+
+
 ### 8. **Inserting Data (INSERT)**:
 Insert a new employee record.
 

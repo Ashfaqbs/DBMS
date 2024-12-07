@@ -73,6 +73,48 @@ MongoDB is a **NoSQL database** that stores data in a flexible, JSON-like format
 
 ![alt text](image-6.png)
 
+```
+creating DB, Collection and also adding data to the collection :
+test> use food
+switched to db food
+food> db.createCollection("fruits")
+{ ok: 1 }
+food> db.fruits.insertMany([
+...     { name: "apple", origin: "usa", price: 5 },
+...     { name: "orange", origin: "italy", price: 3 },
+...     { name: "mango", origin: "malaysia", price: 3 }
+... ])
+{
+  acknowledged: true,
+  insertedIds: {
+    '0': ObjectId('675414289e28940a03964033'),
+    '1': ObjectId('675414289e28940a03964034'),
+    '2': ObjectId('675414289e28940a03964035')
+  }
+}
+food> db.fruits.find().pretty()
+[
+  {
+    _id: ObjectId('675414289e28940a03964033'),
+    name: 'apple',
+    origin: 'usa',
+    price: 5
+  },
+  {
+    _id: ObjectId('675414289e28940a03964034'),
+    name: 'orange',
+    origin: 'italy',
+    price: 3
+  },
+  {
+    _id: ObjectId('675414289e28940a03964035'),
+    name: 'mango',
+    origin: 'malaysia',
+    price: 3
+  }
+]
+
+```
 ### **6. MongoDB Operations Cheat Sheet**
 
 #### **Common CRUD Operations**

@@ -69,6 +69,9 @@ MongoDB is a **NoSQL database** that stores data in a flexible, JSON-like format
   - Example: `{ $group: { _id: "$category", total: { $sum: "$amount" } } }`
 
 ---
+- Note : DB and Collection looks liks :
+
+![alt text](image-6.png)
 
 ### **6. MongoDB Operations Cheat Sheet**
 

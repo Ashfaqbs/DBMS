@@ -1,0 +1,9 @@
+{
+  "name": "John Jones",
+  "age": 37,
+  "email": "johnJones@example.com",
+  "address": {
+    "city": "Bangalore",
+    "street": "Brigade Road"
+  }
+}

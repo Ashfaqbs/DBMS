@@ -1,0 +1,92 @@
+Microsoft Windows [Version 10.0.22631.4169]
+(c) Microsoft Corporation. All rights reserved.
+
+C:\Users\ashfa>docker pull redis
+Using default tag: latest
+latest: Pulling from library/redis
+302e3ee49805: Already exists
+5d0249d9189d: Pull complete
+4825c5e95815: Pull complete
+b0ce50685fa2: Pull complete
+455886c7d31b: Pull complete
+96377887d476: Pull complete
+4f4fb700ef54: Pull complete
+5fac73c23c9b: Pull complete
+Digest: sha256:6725a7dc7a44a6486b9d0a5172b10ccaf0c2ea600df87c0b93450d0e7769297f
+Status: Downloaded newer image for redis:latest
+docker.io/library/redis:latest
+
+What's next:
+    View a summary of image vulnerabilities and recommendations → docker scout quickview redis
+
+C:\Users\ashfa>docker run -d --name myredis -p 6379:6379 redis
+b17e76fc2a8c5590dff4a7ac6432a32a1849018d42df7296bb5762accf22bad3
+
+C:\Users\ashfa>docker logs -f b17
+1:C 07 Oct 2024 05:40:30.902 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Oct 2024 05:40:30.902 * Redis version=7.4.0, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Oct 2024 05:40:30.902 # Warning: no config file specified, using the default config. In order to specify a config file use redis-server /path/to/redis.conf
+1:M 07 Oct 2024 05:40:30.902 * monotonic clock: POSIX clock_gettime
+1:M 07 Oct 2024 05:40:30.903 * Running mode=standalone, port=6379.
+1:M 07 Oct 2024 05:40:30.904 * Server initialized
+1:M 07 Oct 2024 05:40:30.904 * Ready to accept connections tcp
+context canceled
+
+
+
+
+Microsoft Windows [Version 10.0.22631.4169]
+(c) Microsoft Corporation. All rights reserved.
+
+C:\Users\ashfa>docker exec -it myredis redis-cli
+127.0.0.1:6379> SET mykey "Hello Redis"
+OK
+127.0.0.1:6379> get mykey
+"Hello Redis"
+127.0.0.1:6379> SET name "Ashfaq"
+OK
+127.0.0.1:6379>
+127.0.0.1:6379> GET name
+"Ashfaq"
+127.0.0.1:6379> KEYS *
+1) "name"
+2) "mykey"
+127.0.0.1:6379> DEL name
+(integer) 1
+127.0.0.1:6379> GET name
+(nil)
+127.0.0.1:6379> SET company "OpenAI"
+OK
+127.0.0.1:6379> GET company
+"OpenAI"
+127.0.0.1:6379> GET *
+(nil)
+127.0.0.1:6379> KEYS *
+1) "company"
+2) "mykey"
+127.0.0.1:6379> HSET user:1000 name "Ashfaq" age "25"
+(integer) 2
+127.0.0.1:6379> HGETALL user:1000
+1) "name"
+2) "Ashfaq"
+3) "age"
+4) "25"
+127.0.0.1:6379> LPUSH mylist "item1"
+(integer) 1
+127.0.0.1:6379> LPUSH mylist "item2"
+(integer) 2
+127.0.0.1:6379> LRANGE mylist 0 -1
+1) "item2"
+2) "item1"
+127.0.0.1:6379> ZADD mysortedset 1 "apple" 2 "orange" 3 "banana"
+(integer) 3
+127.0.0.1:6379> ZRANGE mysortedset 0 -1
+1) "apple"
+2) "orange"
+3) "banana"
+127.0.0.1:6379>
+What's next:
+    Try Docker Debug for seamless, persistent debugging tools in any container or image → docker debug myredis
+    Learn more at https://docs.docker.com/go/debug-cli/
+
+C:\Users\ashfa>^A

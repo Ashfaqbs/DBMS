@@ -1,0 +1,16 @@
+version: '3.9'
+services:
+  postgres:
+    image: ankane/pgvector   # Includes PostgreSQL with pgvector pre-installed
+    container_name: postgres_vector_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vector_db
+    ports:
+      - "9090:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -155,3 +155,48 @@ This setup now:
 ---
 
 
+Perfect. Let’s now go step-by-step with **document insertions**, followed by **querying (find)**, **updates**, and **deletes using conditions**.
+
+---
+
+## 🔹 Step 1: Insert  Valid Documents into `users`
+
+
+```js
+db.users.insertMany([
+  {
+    username: "ashu",
+    email: "ashu@example.com",
+    passwordHash: "hashed123",
+    createdAt: new Date("2024-01-01"),
+    isActive: true,
+    roles: ["user"]
+  },
+  {
+    username: "junaid",
+    email: "junaid@example.com",
+    passwordHash: "hashed456",
+    createdAt: new Date("2024-02-15"),
+    isActive: false,
+    roles: ["user", "moderator"]
+  },
+  {
+    username: "admin_user",
+    email: "admin@example.com",
+    passwordHash: "hashed789",
+    createdAt: new Date("2024-04-10"),
+    isActive: true,
+    roles: ["admin"]
+  }
+]);
+```
+
+These follow all the schema rules:
+- All **required fields** present
+- `_id` is implicitly allowed
+- Fields are correctly typed
+
+
+---
+
+

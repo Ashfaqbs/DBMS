@@ -235,4 +235,25 @@ db.employees.insertOne({
 
 
 
-## Understanding 
+## Understanding By Questions:
+
+
+In MongoDB, **collections are schemaless by default**, which means:
+Note: here schema is not db > schema > table like how we have in PostgreSQL or other RDBMS, but the structure of the document inside the collection.
+
+
+- We **can** insert documents with different structures into the same collection.
+- There's **no requirement** for each document to have the same fields or data types.
+- MongoDB will **not complain or reject** inserts based on structure differences (unless we're using schema validation explicitly).
+
+So, using our example:
+
+```json
+{ "id": 1, "name": "ash" }
+{ "id": 1, "name": "ash", "age": 25 }
+{ "id": 1, "name": "ash", "no": 93812123141 }
+```
+- No problem, all are valid for mongo as long as we don't use schema validation or have defined the schema structure in advance.
+
+All of these documents can coexist in the same `person` collection **without any issues**, as long as we haven't enforced a schema using [schema validation](https://www.mongodb.com/docs/manual/core/schema-validation/).
+

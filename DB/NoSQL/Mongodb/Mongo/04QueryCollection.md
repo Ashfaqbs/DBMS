@@ -75,8 +75,72 @@ db.users.find(
 
 ---
 
-Want to try these and confirm which ones you're interested in extending or modifying?
 
-Then I’ll take you through **updateOne**, **updateMany**, and conditional updates in Step 2.
+
+ **MongoDB supports sorting and pagination** very similar to SQL's `ORDER BY`, `LIMIT`, and `OFFSET`.
 
 ---
+
+## 🔄 Sort + Paginate in MongoDB
+
+We’ll use:
+- `.sort()` → like `ORDER BY`
+- `.limit()` → like `LIMIT`
+- `.skip()` → like `OFFSET`
+
+---
+
+### ✅ 1. Sort by `createdAt` descending (newest first)
+
+```js
+db.users.find().sort({ createdAt: -1 });
+```
+
+> Like: `ORDER BY createdAt DESC`
+
+---
+
+### ✅ 2. Sort by `username` ascending
+
+```js
+db.users.find().sort({ username: 1 });
+```
+
+> Like: `ORDER BY username ASC`
+
+---
+
+### ✅ 3. Limit to first 2 documents
+
+```js
+db.users.find().limit(2);
+```
+
+> Like: `LIMIT 2`
+
+---
+
+### ✅ 4. Skip first 2, then return next 2
+
+```js
+db.users.find().skip(2).limit(2);
+```
+
+> Like: `OFFSET 2 LIMIT 2`
+
+---
+
+### ✅ 5. Combine Sort + Skip + Limit
+
+```js
+db.users.find()
+  .sort({ createdAt: -1 }) // Newest users first
+  .skip(2)                 // Skip top 2
+  .limit(2);               // Show next 2
+```
+
+---
+
+### ⚠️ Tip for Large Pagination
+
+For large datasets, `.skip()` gets slower — use **range-based pagination** with `createdAt` or `_id` as cursors instead (like "infinite scroll" with bookmarks).

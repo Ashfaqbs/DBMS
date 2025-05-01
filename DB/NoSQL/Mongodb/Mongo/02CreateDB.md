@@ -237,6 +237,7 @@ db.employees.insertOne({
 
 ## Understanding By Questions:
 
+- Default Schemaless in MongoDB behavior.
 
 In MongoDB, **collections are schemaless by default**, which means:
 Note: here schema is not db > schema > table like how we have in PostgreSQL or other RDBMS, but the structure of the document inside the collection.
@@ -256,4 +257,95 @@ So, using our example:
 - No problem, all are valid for mongo as long as we don't use schema validation or have defined the schema structure in advance.
 
 All of these documents can coexist in the same `person` collection **without any issues**, as long as we haven't enforced a schema using [schema validation](https://www.mongodb.com/docs/manual/core/schema-validation/).
+
+ 
+
+- Enforcing Schemas on collection in advance to override the default schemaless behavior.
+lets say for abouve example we want to enforce a schema on the collection to only allow `id` and `name` and no other fields.
+
+ To enforce that **only `id` and `name`** fields can exist in your MongoDB documents, we'll need to define a **JSON schema validator** when creating (or modifying) the collection.
+
+Here's how to do it in MongoDB (via shell or using a driver):
+
+### ✅ Example: Create Collection with Schema Validation
+
+```javascript
+
+
+db.createCollection("person", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["id", "name"],
+      additionalProperties: false,
+      properties: {
+        _id: {},  // Allow MongoDB's automatic _id field
+        id: { bsonType: "int" },
+        name: { bsonType: "string" }
+      }
+    }
+  }
+});
+
+
+
+```
+
+### ✅ Explanation:
+-  we need to allow _id explicitly in our schema if we're using additionalProperties: false,  MongoDB automatically adds an _id field to every document unless we explicitly specify one. Because our schema has additionalProperties: false, it will reject the automatic _id field as an "extra" if not added.
+- `required: ["id", "name"]`: Ensures both fields are present.
+- `additionalProperties: false`: **Blocks** any fields other than `id` and `name`.
+- `bsonType`: Ensures types are respected (`int`, `string`, etc.).
+
+### 🧪 Inserting documents:
+
+#### ✅ Allowed:
+```javascript
+db.person.insertOne({ id: 1, name: "ash" });
+```
+
+#### ❌ Rejected:
+```javascript
+db.person.insertOne({ id: 1, name: "ash", age: 25 }); // "age" is not allowed
+```
+
+
+- Schemaless example 
+
+```
+mymongodb> db.freestyle.insertOne({ id: 1, name: "ash" });
+{
+  acknowledged: true,
+  insertedId: ObjectId('68130fe8caec3e1f37964038')
+}
+mymongodb> db.freestyle.insertOne({ id: 2, name: "misty", badge: "cascade" });
+{
+  acknowledged: true,
+  insertedId: ObjectId('68130fefcaec3e1f37964039')
+}
+mymongodb> db.freestyle.insertOne({ foo: "bar", anything: [1, 2, 3] });
+{
+  acknowledged: true,
+  insertedId: ObjectId('68130ff2caec3e1f3796403a')
+}
+mymongodb> db.freestyle.find().pretty()
+[
+  { _id: ObjectId('68130fe8caec3e1f37964038'), id: 1, name: 'ash' },
+  {
+    _id: ObjectId('68130fefcaec3e1f37964039'),
+    id: 2,
+    name: 'misty',
+    badge: 'cascade'
+  },
+  {
+    _id: ObjectId('68130ff2caec3e1f3796403a'),
+    foo: 'bar',
+    anything: [ 1, 2, 3 ]
+  }
+]
+mymongodb>
+
+
+```
+
 

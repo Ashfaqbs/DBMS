@@ -348,4 +348,71 @@ mymongodb>
 
 ```
 
+- Adding Constraints to the collections:
+
+To enforce **unique constraints** on fields like `id` and `name` in MongoDB, we use **indexes** — specifically, **unique indexes**.
+
+Here’s how to do it step-by-step:
+
+---
+
+### ✅ Enforce Unique `id` and `name` Fields
+
+We can create **two unique indexes**, one for each field:
+
+```javascript
+// Unique index on 'id'
+db.person.createIndex({ id: 1 }, { unique: true });
+
+// Unique index on 'name'
+db.person.createIndex({ name: 1 }, { unique: true });
+```
+
+---
+
+### 🧪 What Happens Now?
+
+#### ✅ Allowed:
+```javascript
+db.person.insertOne({ id: 1, name: "ash" });
+db.person.insertOne({ id: 2, name: "gary" });  // Different id and name
+```
+
+#### ❌ Rejected:
+```javascript
+db.person.insertOne({ id: 1, name: "brock" }); // Duplicate id
+db.person.insertOne({ id: 3, name: "ash" });   // Duplicate name
+```
+
+---
+
+> 🔐 These constraints are enforced at the **index level**, not by the schema validator.
+
+we have created a colelction called person and added schema validation to it.
+now we will add constraints to it.
+
+```
+
+mymongodb> db.person.find().pretty();
+[ { _id: ObjectId('68130efccaec3e1f37964036'), id: 1, name: 'ash' } ]
+mymongodb> db.person.createIndex({ id: 1 }, { unique: true });
+id_1
+mymongodb> db.person.createIndex({ name: 1 }, { unique: true });
+name_1
+mymongodb> db.person.insertOne({ id: 1, name: "ash" });
+MongoServerError: E11000 duplicate key error collection: mymongodb.person index: id_1 dup key: { id: 1 }
+mymongodb> db.person.insertOne({ id: 2, name: "ash" });
+MongoServerError: E11000 duplicate key error collection: mymongodb.person index: name_1 dup key: { name: "ash" }
+mymongodb> db.person.insertOne({ id: 2, name: "gary" });
+{
+  acknowledged: true,
+  insertedId: ObjectId('681310e1caec3e1f3796403d')
+}
+mymongodb> db.person.insertOne({ id: 1, name: "brock" }); // Duplicate id
+MongoServerError: E11000 duplicate key error collection: mymongodb.person index: id_1 dup key: { id: 1 }
+mymongodb> db.person.insertOne({ id: 3, name: "ash" });   // Duplicate name
+MongoServerError: E11000 duplicate key error collection: mymongodb.person index: name_1 dup key: { name: "ash" }
+mymongodb>
+```
+
 

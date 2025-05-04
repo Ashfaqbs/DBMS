@@ -1,14 +1,3 @@
-
-Here’s a detailed **README-style content** for PostgreSQL that covers:
-
-* What PostgreSQL is
-* Its history
-* Core concepts and advanced features
-* Scaling techniques
-* Real-world examples
-
----
-
 # 📘 PostgreSQL - The World's Most Advanced Open Source RDBMS
 
 ## 🔍 What is PostgreSQL?

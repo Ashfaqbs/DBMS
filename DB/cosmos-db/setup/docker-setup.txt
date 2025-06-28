@@ -1,0 +1,41 @@
+PS C:\Users\ashfa> docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+Using default tag: latest
+latest: Pulling from cosmosdb/linux/azure-cosmos-emulator
+30a9c22ae099: Pull complete
+b01d9f204688: Pull complete
+fab1e6d6bc9e: Pull complete
+4f4fb700ef54: Pull complete
+ec66f36d4f33: Pull complete
+6b18a67e81c9: Pull complete
+Digest: sha256:4a81b74239a822b8996d03ce06c881ecbe25b3ecd8f92dd92b120f668e8a32a5
+Status: Downloaded newer image for mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest
+mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest
+
+What's next:
+    View a summary of image vulnerabilities and recommendations → docker scout quickview mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+PS C:\Users\ashfa> docker run -it --rm   -p 8081:8081 -p 10250:10250 -p 10251:10251 -p 10252:10252 -p 10253:10253 -p 10254:10254  mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+This is an evaluation version.  There are [127] days left in the evaluation period.
+2.14.22.0 (5aad492b)
+Copyright (C) Microsoft Corporation. All rights reserved.
+Starting
+Started 1/11 partitions
+Started 2/11 partitions
+Started 3/11 partitions
+Started 4/11 partitions
+Started 5/11 partitions
+Started 6/11 partitions
+Started 7/11 partitions
+Started 8/11 partitions
+Started 9/11 partitions
+Started 10/11 partitions
+Started 11/11 partitions
+Started
+
+
+
+
+
+Loading personal and system profiles took 2320ms.
+PS C:\Users\ashfa> docker ps
+CONTAINER ID   IMAGE                                                    COMMAND                  CREATED              STATUS              PORTS                                                          NAMES
+4027d2a64d47   mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator   "/usr/local/bin/cosm…"   About a minute ago   Up About a minute   0.0.0.0:8081->8081/tcp, 0.0.0.0:10250-10254->10250-10254/tcp   laughing_banzai

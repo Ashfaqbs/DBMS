@@ -1,0 +1,13 @@
+name: Azure Cosmos DB MCP Server
+version: 1.0.0
+schema: v1
+mcpServers:
+  - name: Cosmos DB Query Server
+    command: node
+    args:
+      - C:/tmp/cosmos-db/azure-cosmos-mcp-server-samples/javascript/dist/index.js
+    env:
+      COSMOSDB_URI: https://localhost:8081/
+      COSMOSDB_KEY: C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
+      COSMOS_DATABASE_ID: DemoDB
+      COSMOS_CONTAINER_ID: Products

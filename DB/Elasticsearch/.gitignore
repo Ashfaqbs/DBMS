@@ -1,0 +1,9 @@
+backend/venv*
+scripts/venv
+venv
+frontend/node_modules
+dist
+**/__pycache__/
+backend/.env
+*.env
+!*.env.example

@@ -651,6 +651,25 @@ Running several keeps the cluster reachable if one coordinator dies and
 spreads request-handling load across them — the same redundancy reasoning
 as running multiple data nodes, applied to this role instead.
 
+### Master node vs. coordinating node — direct comparison
+
+Easy to blur together since both sound like "the one in charge of
+traffic." They don't overlap at all:
+
+| | **Master node** | **Coordinating node** |
+|---|---|---|
+| Decides | Cluster *metadata*: which nodes exist, index/mapping definitions, which node hosts which shard | Nothing persistent — just computes `hash(id) % shard_count` for one request |
+| Elected? | Yes — quorum vote among master-eligible nodes, exactly 1 active at a time | No — any node (or any node in a dedicated coordinating-only pool) can play this role, per-request, with no election |
+| State held | Full cluster state, kept in sync on every master-eligible node | None — stateless, nothing to lose if it dies mid-request except that one in-flight request |
+| On the write/search path? | No — only consulted indirectly (every node reads a cached copy of its last-published cluster state) | Yes — it's literally the entry point for every client request |
+| Failure impact | Cluster-wide: no master = no new indices, no mapping changes, no shard reallocation decisions (existing shards keep serving reads/writes fine) | Request-local: that one request fails/retries elsewhere; zero impact on any other request or on the cluster's data |
+| Dedicated in prod? | Yes — 3 master-eligible-only nodes, `node.roles: [master]` | Often — a pool of coordinating-only nodes, `node.roles: []`, separate from both master and data nodes |
+
+One-line version: **the master decides and remembers "where everything
+is"; the coordinator just reads that answer and forwards your request —
+one is a rare, consensus-driven decision, the other is a cheap, stateless
+lookup that happens on every single request.**
+
 ---
 
 ## Production topology template

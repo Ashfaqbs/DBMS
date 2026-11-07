@@ -366,3 +366,287 @@ behind a generic external tool.
 `GROQ_API_KEY` (get one at [console.groq.com](https://console.groq.com)).
 `.env` is git-ignored — never commit a real key. The backend loads it via
 `python-dotenv` at startup.
+
+---
+
+## FAQ — things that trip people up first
+
+**Q: Is Elasticsearch a database, or a search engine?**
+Both, in practice — but it's built as a *search engine* (on top of Lucene)
+that's used as a database. That distinction explains a lot of the other
+answers below: it's fast at search because of an inverted index, not because
+it's "a database that happens to be quick."
+
+**Q: Is an index "schemaless" like MongoDB?**
+Not quite. More precise: *dynamically typed, but statically locked once set.*
+- You **can** add a brand-new field at write time — ES auto-detects
+  ("dynamic mapping") a type for it.
+- You **cannot** change the type of a field that already exists in the
+  mapping, ever, without reindexing.
+- Mongo has no enforced schema at all by default. ES always has a mapping —
+  either you define it upfront or ES infers one on first write. Either way,
+  once a field's type is locked, it's locked.
+- Documents *can* have different shapes (doc A: `{name, age}`, doc B:
+  `{name, age, dept}}`) in the same index — that's the schemaless-*ish* part.
+  What's rigid is the *type* of a given field name, not the shape of a doc.
+
+**Q: What actually happens when I insert `"dog"` and then `"dog is an animal"`?**
+If the field is `text`, ES runs each value through an **analyzer** (default:
+`standard`) at write time: split into words, lowercase, build the term table.
+
+```
+doc1: "dog"                 -> terms: ["dog"]
+doc2: "dog is an animal"    -> terms: ["dog", "is", "an", "animal"]
+
+term     -> doc list
+"dog"    -> [doc1, doc2]
+"is"     -> [doc2]
+"an"     -> [doc2]
+"animal" -> [doc2]
+```
+
+Searching `"dog"` matches both — but they're **ranked**, not just returned.
+BM25 scores doc1 higher than doc2: doc1 is shorter and "dog" is 100% of its
+content, vs. 1-of-4 words in doc2. Field-length normalization penalizes
+longer, more diluted matches.
+
+**Q: `text` vs `keyword` — which one do I actually want?**
+The short version: `text` = "does this word appear *anywhere inside* the
+value" (tokenized, ranked, partial/word-level match). `keyword` = "is this
+value, *in full*, identical to what I'm asking for" (exact whole-string
+equality, case-sensitive, no partial match at all).
+
+Concrete trap — don't think of `keyword` as "text search but stricter on
+partial matches." It doesn't look inside the string at all:
+
+```
+doc1: dept = "Engineering"
+doc2: dept = "Software Engineering"
+```
+
+- `dept` as `keyword`, query `term: "Engineering"` → matches **only doc1**.
+  doc2's value is the single atomic string `"Software Engineering"`, which
+  is not equal to `"Engineering"` — no match, not even a lower-ranked one.
+- `dept` as `text`, query `match: "Engineering"` → matches **both**. doc2
+  tokenizes to `["software", "engineering"]`, and "engineering" is one of
+  those tokens.
+
+Rule of thumb: pick `text` for anything you want to search like a sentence
+(description, title, body). Pick `keyword` for anything you filter on
+exactly, aggregate (`GROUP BY`-style), or sort by (status, SKU, category,
+ID). When unsure, map both on the same value at no duplication cost:
+
+```json
+"content": {
+  "type": "text",
+  "fields": {
+    "raw": { "type": "keyword" }
+  }
+}
+```
+`content` does full-text search; `content.raw` does exact match/aggregation
+on the identical underlying value.
+
+**Q: Who routes a request to the right shard — is there a broker in front of the cluster?**
+No dedicated broker/router process. Any node can act as the **coordinating
+node** for a given request. Write path: coordinator computes
+`shard = hash(_routing) % number_of_primary_shards` (`_routing` defaults to
+the doc's `_id`), forwards the write to whichever node currently hosts that
+primary shard, which indexes it and then synchronously replicates to its
+replica copies before acknowledging. Read path is scatter-gather: the
+coordinator fans the query out to one copy of every shard, each searches
+locally, and the coordinator merges/re-ranks the combined results.
+
+**Q: Can I add a shard to an index at runtime?**
+No — primary shard count is fixed forever at index creation, because it's
+baked into the routing hash formula above; changing it would scramble where
+every existing document lives. To get more shards: `_reindex` into a new
+index created with more primary shards (then alias-swap), or the `_split`
+API (original shard count must evenly divide the target, index must be
+read-only during the operation). Replica count, by contrast, **can** be
+changed freely at runtime — replicas are just copies, not part of the
+routing hash.
+
+**Q: Can I add a node at runtime, and what happens?**
+Yes. The new node discovers and joins the cluster; the master node (elected
+via Raft-like consensus, managing metadata only — it doesn't route data
+traffic itself) triggers shard rebalancing, physically copying Lucene
+segment files onto the new node. No rehashing, no resharding — primary
+shard count never changes, only shard-to-node *placement* does.
+
+**Q: Why is my single-node dev cluster "yellow" instead of "green"?**
+Replica shards are configured but can't be assigned — there's no second
+node to host them. This is expected on `discovery.type=single-node`, not a
+bug; set `number_of_replicas: 0` for single-node dev setups.
+
+---
+
+### System design: shard rebalancing and storage, as a Q&A
+
+**My question:** "So it's like I start with 1 node but I keep 3 shards,
+assuming in future the storage can get 3-4 nodes — so now once I add nodes
+the shard will automatically get divided into the nodes? And for that index
+we will get more storage as that node/VM will configure how much that
+elastic can use the storage, and that index shard will use this — am I
+right?"
+
+**Answer:**
+
+Rebalancing — yes, exactly as described:
+> Start with 1 node, 3 shards (all 3 sitting on that one node). Add 2 more
+> nodes → 3 nodes total. The master node automatically triggers
+> rebalancing: it physically copies 2 of those 3 shards' Lucene segment
+> files onto the new nodes, until you land at ~1 shard per node. No
+> reindex, no manual step, no shard-count change — just *placement*
+> changing.
+
+Storage — needs one correction. It's not "the node configures how much
+Elasticsearch can use, and the shard uses that." More precisely:
+
+- Each node has whatever disk is mounted at its data path (in this
+  project's `docker-compose.yml`, that's the `es-data` volume).
+  Elasticsearch doesn't get an explicit storage *allocation* from you — it
+  just writes into that path until the disk is close to full.
+- ES watches disk usage percentage via **watermarks**: ~85% (low) stops
+  placing new shards on that node, ~90% (high) tries to move shards off,
+  ~95% (flood-stage) makes indices on that node read-only. These are safety
+  brakes, not a storage quota you set.
+- **The catch:** a single shard is an atomic unit — it lives entirely on
+  one node, it cannot be split across two nodes' disks. So with 3 shards
+  and 4 nodes, only 3 nodes end up hosting a primary for this index; the
+  4th either sits idle for this index or hosts a replica. Going from 1 node
+  to 4 nodes does **not** mean this index "gets more storage"
+  proportionally — the index's storage ceiling is capped by
+  `(shard count) × (disk available on whichever node each shard lands on)`.
+  More nodes helps you spread load and parallelize search, but it only
+  increases *this index's* total usable storage if you also have enough
+  shards to spread across those nodes.
+
+**Takeaway:** adding nodes gives an index more storage only up to the
+number of shards it has to place on them. If you anticipate needing more
+total capacity, more nodes alone doesn't solve it — the shard count has to
+be sized for that too, decided back at index-creation time (since it can
+never change afterward without reindexing).
+
+---
+
+### System design: master node vs. primary shard — don't conflate them
+
+**My question:** "So the flow is: when I use elastic, I have LB, I have the
+coordination node which knows which shard to send, which can be sitting in
+any node. And we have master which writes and reads, its backup is the
+replica — and here the master is the actual node's backup — I'm not
+getting this."
+
+**Answer:** This mixes two completely different, unrelated concepts that
+both sound like "the main one":
+
+| | **Master node** | **Primary shard** |
+|---|---|---|
+| Scope | One per *cluster* | One per *shard* (5 shards → 5 independent primaries) |
+| Job | Cluster admin only — tracks which nodes exist, which index/mapping exists, which node currently hosts which shard | Handles the actual document writes for *that one shard*, then pushes to its replica(s) |
+| Involved in a document write? | **No**, not in its master capacity | **Yes** — this is what actually indexes the doc |
+| Its backup/counterpart | None really — if the master node dies, another master-*eligible* node gets elected | The replica shard (a copy of that specific shard, on a different node) |
+
+A single physical node can simultaneously be: the cluster's master (admin
+role) **and** host the primary of shard 3 **and** host the replica of
+shard 1 — three unrelated jobs layered on one machine by coincidence of
+placement, not because they're the same thing.
+
+**The one-line fix:** replace "the master writes and reads, its backup is
+the replica" with — *"the primary shard writes and reads for its own
+shard; its backup is the replica shard. The master does neither — it only
+keeps the map of who's holding what."*
+
+**Kafka analogy, for anyone coming from that background:**
+
+| Kafka | Elasticsearch |
+|---|---|
+| Partition leader | Primary shard |
+| Partition follower | Replica shard |
+| Broker | Node |
+
+Just like a Kafka broker can be leader for partition A and follower for
+partition B at the same time, an ES node can hold the primary of shard X
+and the replica of shard Y simultaneously — primary/replica is decided
+per-shard, independently, not per-node.
+
+---
+
+### System design: the load balancer is not part of Elasticsearch
+
+**My question:** "So I have to add an LB in prod systems, am I right, when
+I'm hosting the Elastic?"
+
+**Answer:** Yes, if self-hosting (own VMs/Kubernetes) — but it's worth
+knowing this is a choice between two patterns, not a built-in ES feature:
+
+- **Client-side round-robin** — the ES client library is configured with
+  the full list of node addresses and round-robins (and can "sniff" the
+  cluster to auto-discover new nodes) itself. No extra infra, but every
+  client needs the node list, and there's no central health-checking/TLS
+  termination point.
+- **A real LB/reverse proxy in front** (nginx, HAProxy, a cloud LB) — what
+  prod actually runs. Clients only know one stable address; the LB does
+  health checks, TLS termination, and absorbs topology changes
+  transparently. Often placed in front of dedicated **coordinating-only
+  nodes** (`master: false, data: false` — a node role whose only job is to
+  absorb client traffic and do the hash-routing/scatter-gather, without
+  ever storing a shard), isolating client-traffic load from disk I/O.
+
+**The exception:** on a *managed* service (Elastic Cloud, AWS OpenSearch
+Service, etc.) you don't build any of this — they hand you a single
+endpoint and run the LB/routing layer behind the scenes. You only need to
+stand up your own LB when self-hosting raw Elasticsearch on your own
+nodes — which is exactly what this project's `docker-compose.yml` would
+need, if it ever grew past one node.
+
+---
+
+### System design: the "redirect" component post-LB — coordinating nodes
+
+**My question:** "So post-LB we have this redirect component, right? Oh
+it's like a normal node can act as a coordination node to redirect the
+request to the respective shard, but in prod or heavy systems we have a
+main coordinator node only does this job?"
+
+**Answer:** The redirect step is real, but by default it isn't a separate
+piece of infrastructure — it's a **role any node plays for a single
+request**:
+
+```
+CLIENT → LB → [any ES node] → that node becomes coordinator for THIS
+                                request only: hashes the doc id, looks up
+                                cluster state, forwards to the node
+                                holding the target shard, and (for
+                                searches) merges results before replying.
+```
+
+Next request, the LB might pick a different node, and *that one* becomes
+the coordinator that time. Nothing is fixed.
+
+**Correction on "a main coordinator node":** not one — that recreates the
+exact single-point-of-failure/throughput-ceiling problem this design is
+meant to avoid. At scale, it's a **pool of dedicated coordinating-only
+nodes** (`node.roles: []` — not master-eligible, holds zero shards), and
+the LB round-robins across that pool the same way it would across data
+nodes:
+
+```
+                    ┌─────┐
+CLIENT ──► LB ──►  │ C1  │  ─┐
+                    ├─────┤   │
+                    │ C2  │  ─┼─► LB picks one of these per request.
+                    ├─────┤   │     Each is coordinating-only: no shards,
+                    │ C3  │  ─┘     not master-eligible. Job: hash →
+                    └─────┘         redirect → merge → reply.
+                       │
+                       ▼ forwards to whichever node holds the target shard
+                    ┌──────────────────────────┐
+                    │ Data nodes (hold shards)  │
+                    └──────────────────────────┘
+```
+
+Running several keeps the cluster reachable if one coordinator dies and
+spreads request-handling load across them — the same redundancy reasoning
+as running multiple data nodes, applied to this role instead.

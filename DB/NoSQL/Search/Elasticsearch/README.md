@@ -862,3 +862,124 @@ conversation:
   list, one entry per role, and handles the version upgrades/certs/scaling
   mechanics underneath. Worth knowing hand-rolled YAML like above is what
   that CRD is abstracting, not a competing approach.
+
+---
+
+## Five things the architecture discussion above doesn't cover
+
+Routing/master/coordinator/topology is the complete picture for "how does
+a request find the right place." These five are genuinely separate
+concerns, not padding — gaps that matter for production or interviews.
+
+### 1. Near-real-time search — a write isn't instantly searchable
+
+```
+POST /products/_doc/101  {...}          → acked immediately
+GET  /products/_doc/101                 → finds it immediately (reads translog)
+GET  /products/_search?q=name:foo       → may NOT find it for up to ~1s
+```
+
+Why: indexing a doc buffers it in an in-memory Lucene segment. That
+segment only becomes visible to **search** when a **refresh** happens —
+by default, automatically, every `refresh_interval` (default **1s**). A
+direct `GET` by ID doesn't go through this at all — it's served straight
+from the translog/stored doc, so it's always immediately consistent.
+Only `_search` has this near-real-time (not real-time) delay.
+
+Why it exists: refreshing is expensive — it opens a new Lucene searcher
+over the latest segments. Doing it on every single write would tank
+indexing throughput. Batching it into a ~1s window is the throughput/
+latency tradeoff. You *can* force it (`?refresh=true` on a write, or
+`refresh_interval: "-1"` to disable auto-refresh entirely for bulk-load
+scenarios), but the default assumption for any ES-backed feature should
+be: **a write may not be visible to search for up to ~1 second.**
+
+### 2. Cluster health RED — when it's not just "no replica," it's "no primary"
+
+| Health | Meaning |
+|---|---|
+| 🟢 Green | All primary **and** replica shards assigned |
+| 🟡 Yellow | All primaries assigned, but at least one replica isn't (exactly the single-node dev case from earlier) |
+| 🔴 Red | At least one **primary** shard is unassigned — that shard's data is unavailable for reads/writes right now |
+
+Red happens when a primary and all its replicas are lost before the
+cluster can recover one (e.g., the node holding the primary dies at the
+same moment a replica-holding node is also down or still recovering).
+Recovery path: the master promotes a surviving replica to primary if one
+exists; if *none* exist (this is exactly why `number_of_replicas: 0` is
+dangerous outside dev), the only way back is **restoring from a
+snapshot** — see below. An index can sit red and partially
+queryable/writable (other shards of the same index may be fine) — red is
+per-shard, reported as the worst status across the whole cluster.
+
+### 3. Snapshot/restore — the thing replicas do NOT protect against
+
+Replicas protect against **node/hardware failure**. They do nothing for:
+- a bad delete/update rolled out by application code,
+- an index deleted by mistake (`DELETE /products` — instant, no undo),
+- wanting to roll back to "how the data looked yesterday."
+
+That's what **snapshots** are for — a point-in-time backup to external
+storage (S3, GCS, Azure Blob, or a shared filesystem), taken via a
+registered **snapshot repository**:
+
+```bash
+# one-time: register where backups go
+PUT /_snapshot/prod_backups
+{ "type": "s3", "settings": { "bucket": "my-es-backups" } }
+
+# take a snapshot (usually on a schedule via SLM - Snapshot Lifecycle Mgmt)
+PUT /_snapshot/prod_backups/snapshot_2026_11_08
+
+# restore it later, into a different index name to avoid clobbering
+POST /_snapshot/prod_backups/snapshot_2026_11_08/_restore
+```
+
+**SLM** (Snapshot Lifecycle Management) automates the schedule + retention
+(e.g., daily snapshots, keep 30 days) the same way ILM automates index
+rollover. Any prod cluster without a configured SLM policy has no actual
+disaster-recovery story — replicas alone are not a backup strategy.
+
+### 4. Security — what actually changes vs. `xpack.security.enabled=false`
+
+This project's dev setup disables security entirely. Turning it on for
+prod means:
+- **TLS between nodes** (transport layer, port 9300) and **TLS for the
+  REST API** (port 9200) — unencrypted inter-node traffic in prod is a
+  real exposure, not a theoretical one.
+- **Authentication** — every request needs credentials: either basic
+  auth, or (more common for services) an **API key** scoped to specific
+  permissions, created via `_security/api_key`.
+- **RBAC** — roles define exactly which indices/actions a user or API key
+  can touch (e.g., a role that can only `read` `products*`, never
+  `delete`). This is where "the backend service account should not be
+  able to drop indices" gets enforced.
+- **Built-in superuser** (`elastic`) — set its password once via
+  `elasticsearch-setup-passwords` or auto-generated on first start; never
+  left as a default/blank credential in anything beyond local dev.
+
+### 5. Write durability and acknowledgment — what "the write succeeded" actually guarantees
+
+Two separate mechanisms, often conflated:
+
+- **Translog** — every write is appended to a per-shard translog
+  *before* being acknowledged, and fsynced to disk (`index.translog.durability: request`,
+  the default) — so a crash right after an ack doesn't lose that write;
+  it's replayed from translog on recovery. This is ES's answer to
+  "durability," independent of replication.
+- **`wait_for_active_shards`** — controls how many shard **copies**
+  (primary + replicas) must acknowledge before a write returns success to
+  the client. Default is `1` (just the primary) — meaning a write can
+  succeed, then if that primary's node dies microseconds later before
+  replicating, you could lose it, unless a replica had already caught up.
+  You can raise this (e.g., `"wait_for_active_shards": "all"`) for
+  stronger durability at the cost of write latency.
+
+Direct contrast with the quorum-consensus idea from the master-election
+discussion: **this is not quorum.** Cassandra-style systems default to
+requiring a majority of replicas to ack before a write succeeds. ES's
+default requires only the primary — replication to replicas happens
+synchronously but isn't gating the ack unless you explicitly raise
+`wait_for_active_shards`. Worth knowing precisely because it's the
+opposite default from what someone coming from a Dynamo/Cassandra
+background would assume.

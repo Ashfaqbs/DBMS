@@ -650,3 +650,196 @@ CLIENT ──► LB ──►  │ C1  │  ─┐
 Running several keeps the cluster reachable if one coordinator dies and
 spreads request-handling load across them — the same redundancy reasoning
 as running multiple data nodes, applied to this role instead.
+
+---
+
+## Production topology template
+
+Everything above as separate concepts, assembled into one picture: what
+non-prod actually looks like, what prod should look like, and how that
+maps onto containers/Kubernetes.
+
+### Non-prod (dev/test) — what this project runs
+
+```
+┌───────────────────────────────────────────────┐
+│  single node  (es-node, from docker-compose.yml) │
+│  roles: master + data + ingest + coordinating  │
+│  (every role, because it's the only node)       │
+│                                                   │
+│  number_of_shards:   1                           │
+│  number_of_replicas: 0   (no 2nd node to host it)│
+│  cluster health: YELLOW is expected, not a bug   │
+└───────────────────────────────────────────────┘
+```
+
+Rules for this tier:
+- `discovery.type=single-node` (skips quorum bootstrap entirely).
+- `number_of_replicas: 0` — don't configure replicas you have nowhere to
+  place; it just leaves the cluster perpetually yellow for no benefit.
+- No LB, no dedicated coordinating nodes, no dedicated master nodes — all
+  of that exists to solve problems (failover, load spread, isolation) that
+  a single disposable dev node doesn't have.
+- Fine to run with `xpack.security.enabled=false` — never do this past dev.
+
+### Prod — minimum viable HA topology
+
+```
+                              ┌──────────┐
+                              │  CLIENT  │
+                              └────┬─────┘
+                                   ▼
+                         ┌───────────────────┐
+                         │   LOAD BALANCER     │   nginx / HAProxy / cloud LB
+                         │   (TLS termination, │   or Elastic Cloud's managed
+                         │    health checks)    │   endpoint
+                         └─────────┬───────────┘
+                                   ▼
+          ┌─────────────────────────────────────────────┐
+          │           COORDINATING-ONLY NODES             │
+          │              (pool, e.g. 2-3)                  │
+          │  node.roles: []  — no data, not master-eligible │
+          │  job: hash routing, scatter-gather, merge       │
+          └──────────────────────┬────────────────────────┘
+                                   ▼
+          ┌─────────────────────────────────────────────┐
+          │              DATA NODES  (N, scales with load) │
+          │  node.roles: [data]                            │
+          │  hold primary + replica shards, do the actual   │
+          │  indexing/searching, need fast disk + most RAM  │
+          └─────────────────────────────────────────────┘
+
+          ┌─────────────────────────────────────────────┐
+          │         MASTER-ELIGIBLE NODES  (exactly 3)      │
+          │  node.roles: [master]  — no data, no coordinating│
+          │  quorum-elect ONE active master; other 2 standby,│
+          │  fully synced, ready for instant failover        │
+          │  (small/cheap — metadata-only, low CPU/disk need) │
+          └─────────────────────────────────────────────┘
+```
+
+Why each tier is separate in prod (not merged like in dev):
+- **Dedicated masters (3, not more)** isolate cluster-metadata consensus
+  from data/search load — a search traffic spike should never risk
+  destabilizing leader election. 3 gives quorum-tie protection (see the
+  master-election Q&A above); more than 3 just slows elections down for
+  no added safety.
+- **Dedicated coordinating nodes** isolate client-request fan-out/merge
+  CPU and connection load from disk I/O on data nodes.
+- **Data nodes** scale independently — add more as data volume grows,
+  without touching master or coordinator counts at all.
+- **Replica count ≥ 1** in prod, always — `number_of_replicas: 0` is a
+  dev-only setting; in prod it means zero redundancy, one disk failure
+  away from permanent data loss for that shard.
+
+### Containerized / Kubernetes example
+
+The node-role separation above maps directly onto **separate StatefulSets**
+— one per role, each with its own replica count, resources, and (critically)
+only the data-node StatefulSet needs a PersistentVolumeClaim:
+
+```yaml
+# ---- master-eligible nodes: 3 replicas, tiny disk, no PVC needed for data ----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: es-master
+spec:
+  replicas: 3
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:            # never 2 master pods on the same physical node
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: elasticsearch
+          env:
+            - name: node.roles
+              value: "master"
+            - name: cluster.initial_master_nodes
+              value: "es-master-0,es-master-1,es-master-2"
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "1",    memory: "2Gi" }   # metadata-only: cheap
+
+---
+# ---- data nodes: N replicas, PVC per pod, most CPU/RAM/disk ----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: es-data
+spec:
+  replicas: 3                       # scales independently of master/coord counts
+  template:
+    spec:
+      containers:
+        - name: elasticsearch
+          env:
+            - name: node.roles
+              value: "data,ingest"
+          resources:
+            requests: { cpu: "2",  memory: "8Gi" }
+            limits:   { cpu: "4",  memory: "16Gi" }
+          volumeMounts:
+            - name: es-data-vol
+              mountPath: /usr/share/elasticsearch/data
+  volumeClaimTemplates:              # <- the key difference vs. master/coordinator
+    - metadata: { name: es-data-vol }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 200Gi } }
+
+---
+# ---- coordinating-only nodes: stateless, no PVC, scale like a normal web tier ----
+apiVersion: apps/v1
+kind: Deployment               # Deployment, not StatefulSet -- fully stateless
+metadata:
+  name: es-coordinator
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: elasticsearch
+          env:
+            - name: node.roles
+              value: ""        # empty roles = coordinating-only
+          resources:
+            requests: { cpu: "1", memory: "2Gi" }
+
+---
+# ---- Service: the LB's actual target, fronting the coordinator pool ----
+apiVersion: v1
+kind: Service
+metadata:
+  name: es-client
+spec:
+  selector: { app: es-coordinator }
+  ports: [{ port: 9200, targetPort: 9200 }]
+  type: LoadBalancer            # cloud LB provisioned automatically here
+```
+
+What this buys you, mapped back to the concepts from this whole
+conversation:
+- `cluster.initial_master_nodes` is the K8s-native equivalent of
+  "bootstrap the quorum" — only needed on first cluster formation.
+- **Only `es-data` has a `volumeClaimTemplates` block.** Master and
+  coordinator pods are disposable/stateless-ish by design — losing one and
+  having K8s reschedule it elsewhere is cheap and expected; losing a data
+  pod without a PVC would mean losing that node's shards.
+- `podAntiAffinity` on the master StatefulSet is doing, at the K8s
+  scheduling level, exactly what "3 master-eligible nodes" is meant to
+  guarantee at the ES level: losing *one physical machine* should never be
+  able to take out a quorum-majority of masters at once.
+- The `Service` of `type: LoadBalancer` *is* the LB from this whole
+  discussion — in K8s, that's usually how it's realized concretely (cloud
+  provider provisions an actual LB resource targeting this Service), and
+  it fronts the **coordinator pool**, not the data nodes directly — same
+  topology as the ASCII diagram above, just expressed as K8s objects.
+- In practice, most teams don't hand-write these StatefulSets — the
+  **ECK operator** (Elastic Cloud on Kubernetes) encodes this exact
+  role-separation pattern as a single `Elasticsearch` CRD with a `nodeSets`
+  list, one entry per role, and handles the version upgrades/certs/scaling
+  mechanics underneath. Worth knowing hand-rolled YAML like above is what
+  that CRD is abstracting, not a competing approach.
